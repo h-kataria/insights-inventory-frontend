@@ -103,6 +103,19 @@ export type OnSort = (
 ) => void;
 export type Pagination = ReturnType<typeof useDataViewPagination>;
 
+const isNotFoundError = (error: unknown) => {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+
+  const httpError = error as {
+    status?: number;
+    response?: { status?: number };
+  };
+
+  return httpError.status === 404 || httpError.response?.status === 404;
+};
+
 export type SystemsViewProps<
   TItem extends SystemsViewItem,
   TFilterParams = unknown,
@@ -267,7 +280,7 @@ function SystemsViewInner<TItem extends SystemsViewItem, TFilterParams>({
     [pagination.page, pagination.perPage, sortBy, direction, filterParams],
   );
 
-  const { data, isLoading, isFetching, isError } = useQuery({
+  const { data, error, isLoading, isFetching, isError } = useQuery({
     queryKey: [queryKeyPrefix, fetchParams],
     queryFn: () => fetchData(fetchParams),
     placeholderData: keepPreviousData,
@@ -275,6 +288,39 @@ function SystemsViewInner<TItem extends SystemsViewItem, TFilterParams>({
   });
   const rowsData = data?.results;
   const total = data?.total;
+  const { page, perPage, onSetPage } = pagination;
+
+  useEffect(() => {
+    if (isFetching || page <= 1 || perPage <= 0) {
+      return;
+    }
+
+    const lastPage =
+      total === undefined ? undefined : Math.max(1, Math.ceil(total / perPage));
+
+    if (isNotFoundError(error)) {
+      onSetPage(undefined, page - 1);
+      return;
+    }
+
+    if (data?.results.length === 0) {
+      onSetPage(undefined, page - 1);
+      return;
+    }
+
+    if (lastPage !== undefined && page > lastPage) {
+      onSetPage(undefined, lastPage);
+    }
+  }, [
+    data?.results.length,
+    error,
+    isFetching,
+    onSetPage,
+    page,
+    perPage,
+    total,
+  ]);
+
   const isInventoryViewsRbacEnabled = useInventoryViewsColumnsRbacFeatureFlag();
   const deniedServices = isInventoryViewsRbacEnabled
     ? (data?.deniedServices ?? EMPTY_SERVICES)
